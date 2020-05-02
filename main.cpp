@@ -3,6 +3,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <ctime>
 
 using namespace std;
 
@@ -91,6 +92,13 @@ Command parse_line(const char* str) {
 	return cmd;
 }
 
+struct Record {
+	// record final result
+	int filled; // 0-not filled, 1-filling, 2-filled
+	int issue;
+	int complete;
+};
+
 class Tomasulo {
 	struct RS {
 		// ±£¡Ù’æ
@@ -122,14 +130,6 @@ class Tomasulo {
 
 		Inst(int id_, int rs_, int fu_ = -1) : state(issued), id(id_), rs_id(rs_), fu_id(fu_), next(nullptr) {
 		}
-	};
-
-	struct Record {
-		// record final result
-		int filled; // 0-not filled, 1-filling, 2-filled
-		int id;
-		int issue;
-		int complete;
 	};
 
 	RS *rs, *rs_; // ±£¡Ù’æ
@@ -184,7 +184,7 @@ public:
 		memset(reg, 0, 32 * sizeof(int));
 	}
 
-	void run(vector<string>& lines, bool log = true) {
+	Record* run(vector<string>& lines, bool log = true) {
 		pc = 0;
 		int size = lines.size();
 		auto cmds = new Command[size];
@@ -214,15 +214,13 @@ public:
 			for (i = 0; i < 7; ++i) {
 				if (fu_[i].count > 0) {
 					fu_[i].count -= 1;
-				} else {
-					fu_[i].id = 0;
 				}
 			}
 
 			// execute commands
 			p = head;
 			while (p != nullptr) {
-				auto cmd = cmds[p->id];
+				auto& cmd = cmds[p->id];
 				if (p->state == Inst::executing) {
 					auto& r = rs[p->rs_id];
 					auto f = fu[p->fu_id];
@@ -462,7 +460,7 @@ public:
 			// check if issued commands can be executed
 			p = head;
 			while (p != nullptr) {
-				auto cmd = cmds[p->id];
+				auto& cmd = cmds[p->id];
 				if (p->state == Inst::issued) {
 					auto& r = rs_[p->rs_id];
 					// check Qj, Qk
@@ -539,6 +537,7 @@ public:
 				break;
 			}
 		}
+		return records;
 	}
 
 	void show(vector<string>& lines, int cycle) {
@@ -626,16 +625,17 @@ public:
 
 
 int main(int argc, const char* argv[]) {
-#if true
+	auto t = clock();
+#if false
 	argc = 3;
-	const char* cmd[] = {"tomasulo.exe", "C:\\Users\\johna\\Data\\Example.nel", "C:\\Users\\johna\\Data\\0.basic.log"};
+	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Gcd.nel", "C:\\Users\\johna\\Data\\0.basic.log", "-q"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
 		cout << "Usage: tomasulo.exe input output [-q]\n\n";
 		cout << "    input\tpath to NEL file\n";
 		cout << "    output\tpath to log file\n";
-		cout << "    -q\tQuiet mode, do not print state info to stdout\n\n";
+		cout << "    -q\t\tQuiet mode, do not print state info to stdout except time\n\n";
 		return 0;
 	}
 	bool quiet = (argc > 3);
@@ -655,13 +655,17 @@ int main(int argc, const char* argv[]) {
 	string line;
 	while (!input.eof()) {
 		input >> line;
-		//auto c = parse_line(line.c_str());
-		//cout << c.type << " " << c.op[0] << " " << c.op[1] << " " << c.op[2] << endl;
 		lines.push_back(line);
 	}
+	input.close();
 	Tomasulo tomasulo;
-	tomasulo.run(lines, !quiet);
-
-	system("pause");
+	auto records = tomasulo.run(lines, !quiet);
+	for (int i = 0, j = lines.size(); i < j; ++i) {
+		auto& r = records[i];
+		output << i << " " << r.issue << " " << r.complete << endl;
+	}
+	output.close();
+	cout << "Time: " << clock() - t << endl;
+	//system("pause");
 	return 0;
 }
