@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -94,7 +95,7 @@ class Tomasulo {
 	struct RS {
 		// 保留站
 		bool busy;
-		char op; // 0表示加/乘，1表示减/除，2表示jump
+		char op; // 0-加，1-减，2-乘，3-除，4-jump
 		int vj, vk; // 源操作数的值
 		int qj, qk; // 产生源操作数的RS，为0表示操作数已经就绪或者不需要
 	};
@@ -106,13 +107,13 @@ class Tomasulo {
 	};
 
 	struct FU {
-		int id; // 指令id
+		int id; // 指令id+1
 		int count; // 剩余cycle
 	};
 
 	class Inst {
 	public:
-		enum State { pending, issued, executing, executed, written } state;
+		enum State { issued, executing, written } state;
 
 		int id;
 		int rs_id;
@@ -134,7 +135,7 @@ class Tomasulo {
 	RS *rs, *rs_; // 保留站
 	LB *lb, *lb_; // load buffer
 	FU *fu, *fu_; // function unit
-	int *reg_state, *reg_state_; // 寄存器状态，-1表示就绪
+	int *reg_state, *reg_state_; // 寄存器状态，0表示就绪
 	int reg[32]; // 寄存器值
 	int pc; // PC
 
@@ -142,7 +143,7 @@ class Tomasulo {
 		// copy states
 		memcpy(rs_, rs, 9 * sizeof(RS));
 		memcpy(lb_, lb, 3 * sizeof(LB));
-		memcpy(fu_, fu, 3 * sizeof(FU));
+		memcpy(fu_, fu, 7 * sizeof(FU));
 		memcpy(reg_state_, reg_state, 32 * sizeof(bool));
 	}
 
@@ -160,9 +161,6 @@ class Tomasulo {
 		t = reg_state;
 		reg_state = reg_state_;
 		reg_state_ = (int*)t;
-		//memcpy(rs, rs_, 9 * sizeof(RS));
-		//memcpy(lb, lb_, 3 * sizeof(LB));
-		//memcpy(reg_state, reg_state_, 32 * sizeof(bool));
 	}
 
 public:
@@ -200,14 +198,15 @@ public:
 		//head->state = Inst::issued;
 		//head->next = nullptr;
 		Inst *head = nullptr, *tail = nullptr;
+		// 由于不做分支预测，可以不考虑多重jump的情况，用一套变量存jump状态即可
 		bool jumping = false; // 是否正在等待跳转
 		int jump_val; // jump判等值
-		int jump_pc; // jump目标pc (由于不做分支预测，可以不考虑多重jump的情况)
-		while (pc < size) {
-			auto& cmd = cmds[pc];
-			char addmul = 0;
-			bool found;
+		int jump_pc; // jump目标pc
+		int cycle = 0;
+		while (true) {
 			int i;
+			bool found;
+			Inst* p;
 
 			copy();
 
@@ -215,213 +214,257 @@ public:
 			for (i = 0; i < 7; ++i) {
 				if (fu_[i].count > 0) {
 					fu_[i].count -= 1;
+				} else {
+					fu_[i].id = 0;
 				}
 			}
 
-			// check if new cmd can be issued
-			if (!jumping) {
-				switch (cmd.type) {
-				case Command::sub:
-					addmul = 1;
-				case Command::add:
-					found = false;
-					for (i = 0; i < 6; ++i) {
-						// check rs
-						if (!rs[i].busy) {
-							found = true;
-							break;
-						}
-					}
-					if (found) {
-						// rs available, issue
-						if (tail == nullptr) {
-							head = tail = new Inst(pc, i);
-						} else {
-							tail->next = new Inst(pc, i);
-							tail = tail->next;
-						}
-
-						// add pc
-						pc += 1;
-
-						// modify rs table
-						auto& r = rs_[i];
-						r.busy = true;
-						r.op = addmul;
-						if (reg_state[cmd.op[1]] < 0) {
-							// check if reg available
-							r.vj = reg[cmd.op[1]];
-							r.qj = 0;
-						} else {
-							r.qj = reg_state[cmd.op[1]];
-						}
-						if (reg_state[cmd.op[2]] < 0) {
-							// check if reg available
-							r.vj = reg[cmd.op[2]];
-							r.qj = 0;
-						} else {
-							r.qj = reg_state[cmd.op[2]];
-						}
-
-						// modify reg state table
-						reg_state_[cmd.op[0]] = i;
-
-						//// check if FU available
-						//found = false;
-						//for (i = 0; i < 3; ++i) {
-						//	if (fu[i].count == 0) {
-						//		found = true;
-						//		break;
-						//	}
-						//}
-						//if (found) {
-						//	// fu available, execute
-						//	fu_[i].id = pc;
-						//	fu_[i].count = 3;
-						//	tail->state = Inst::executing;
-						//}
-					}
-					break;
-				case Command::div:
-					addmul = 1;
-				case Command::mul:
-					found = false;
-					for (i = 6; i < 9; ++i) {
-						// check rs
-						if (!rs[i].busy) {
-							found = true;
-							break;
-						}
-					}
-					if (found) {
-						// rs available, issue
-						if (tail == nullptr) {
-							head = tail = new Inst(pc, i);
-						} else {
-							tail->next = new Inst(pc, i);
-							tail = tail->next;
-						}
-
-						// add pc
-						pc += 1;
-
-						// modify rs table
-						auto& r = rs_[i];
-						r.busy = true;
-						r.op = addmul;
-						if (reg_state[cmd.op[1]] < 0) {
-							// check if reg available
-							r.vj = reg[cmd.op[1]];
-							r.qj = 0;
-						} else {
-							r.qj = reg_state[cmd.op[1]];
-						}
-						if (reg_state[cmd.op[2]] < 0) {
-							// check if reg available
-							r.vj = reg[cmd.op[2]];
-							r.qj = 0;
-						} else {
-							r.qj = reg_state[cmd.op[2]];
-						}
-
-						// modify reg state table
-						reg_state_[cmd.op[0]] = i;
-
-						//// check if FU available
-						//found = false;
-						//for (i = 3; i < 5; ++i) {
-						//	if (fu[i].count == 0) {
-						//		found = true;
-						//		break;
-						//	}
-						//}
-						//if (found) {
-						//	// fu available, execute
-						//	fu_[i].id = pc;
-						//	fu_[i].count = 4;
-						//	tail->state = Inst::executing;
-						//}
-					}
-					break;
-				case Command::load:
-					found = false;
-					for (i = 0; i < 3; ++i) {
-						// check LB
-						if (!lb[i].busy) {
-							found = true;
-							break;
-						}
-					}
-					if (found) {
-						// LB available, issue
-						if (tail == nullptr) {
-							head = tail = new Inst(pc, i);
-						} else {
-							tail->next = new Inst(pc, i);
-							tail = tail->next;
-						}
-
-						// add pc
-						pc += 1;
-
-						// modify LB table
-						auto& l = lb_[i];
-						l.busy = true;
-						l.addr = cmd.op[1];
-
-						// modify reg state table
-						reg_state_[cmd.op[0]] = i;
-
-					}
-					break;
-				case Command::jump:
-					found = false;
-					for (i = 0; i < 6; ++i) {
-						// check rs
-						if (!rs[i].busy) {
-							found = true;
-							break;
-						}
-					}
-					if (found) {
-						// rs available, issue
-						if (tail == nullptr) {
-							head = tail = new Inst(pc, i);
-						} else {
-							tail->next = new Inst(pc, i);
-							tail = tail->next;
-						}
-
-						// store jump info
-						jumping = true;
-						jump_pc = cmd.op[2];
-						jump_val = cmd.op[0];
-
-						// modify rs table
-						auto& r = rs_[i];
-						r.busy = true;
-						r.op = 2;
-						if (reg_state[cmd.op[1]] < 0) {
-							// check if reg available
-							r.vj = reg[cmd.op[1]];
-							r.qj = 0;
-						} else {
-							r.qj = reg_state[cmd.op[1]];
-						}
-
-						// modify reg state table
-						reg_state_[cmd.op[0]] = i;
-					}
-				}
-			}
-
-			// execute cmds
-			auto p = head;
+			// execute commands
+			p = head;
 			while (p != nullptr) {
 				auto cmd = cmds[p->id];
-				auto r = rs[p->rs_id];
-				switch (p->state) {
-				case Inst::issued:
+				if (p->state == Inst::executing) {
+					auto& r = rs[p->rs_id];
+					auto f = fu[p->fu_id];
+					if (f.count == 0) {
+						// calc result
+						int result;
+						switch (cmd.type) {
+						case Command::add:
+							result = r.vj + r.vk;
+							break;
+						case Command::sub:
+							result = r.vj - r.vk;
+							break;
+						case Command::mul:
+							result = r.vj * r.vk;
+							break;
+						case Command::div:
+							result = r.vj / (r.vk == 0 ? 1 : r.vk);
+							break;
+						case Command::load:
+							result = lb[p->rs_id].addr;
+							break;
+						case Command::jump:
+							break;
+						}
+
+						auto id = p->rs_id + 1;
+						if (cmd.type == Command::load) {
+							id += 9;
+						}
+						if (cmd.type != Command::jump) {
+							// transfer data
+							// to RS
+							for (i = 0; i < 9; ++i) {
+								if (rs[i].qj == id) {
+									rs_[i].vj = result;
+									rs_[i].qj = 0;
+								}
+								if (rs[i].qk == id) {
+									rs_[i].vk = result;
+									rs_[i].qk = 0;
+								}
+							}
+							// to reg (there's no WAR)
+							for (i = 0; i < 32; ++i) {
+								if (reg_state[i] == id) {
+									// 执行状态的指令rs_id必然不同，不用担心WAW
+									reg[i] = result;
+									reg_state[i] = reg_state_[i] = 0; // 下个周期issue的指令也要接收到改变
+								}
+							}
+						} else {
+							// jump
+							if (jump_val == r.vj) {
+								pc = jump_pc;
+							}
+							jumping = false;
+						}
+
+						// release LB & RS
+						if (cmd.type == Command::load) {
+							lb[p->rs_id].busy = lb_[p->rs_id].busy = false;
+						} else {
+							rs[p->rs_id].busy = rs_[p->rs_id].busy = false;
+						}
+
+						p->state = Inst::written;
+						auto& rec = records[p->id];
+						if (rec.filled == 1) {
+							rec.complete = cycle;
+							rec.filled = 2;
+						}
+					}
+				} else if (p->state == Inst::written) {
+					if (p == head) {
+						head = head->next;
+					}
+				}
+				p = p->next;
+			}
+
+			// fetch cmd
+			if (pc < size) {
+				auto& cmd = cmds[pc];
+
+				// check if new cmd can be issued
+				bool issued = false;
+				if (!jumping) {
+					switch (cmd.type) {
+					case Command::add:
+					case Command::sub:
+						found = false;
+						for (i = 0; i < 6; ++i) {
+							// check rs
+							if (!rs[i].busy) {
+								found = true;
+								break;
+							}
+						}
+						if (found) {
+							// rs available, issue
+							issued = true;
+
+							// modify rs table
+							auto& r = rs_[i];
+							r.busy = true;
+							r.op = (cmd.type == Command::add) ? 0 : 1;
+							if (reg_state[cmd.op[1]] == 0) {
+								// check if reg available
+								r.vj = reg[cmd.op[1]];
+								r.qj = 0;
+							} else {
+								r.qj = reg_state[cmd.op[1]];
+							}
+							if (reg_state[cmd.op[2]] == 0) {
+								// check if reg available
+								r.vk = reg[cmd.op[2]];
+								r.qk = 0;
+							} else {
+								r.qk = reg_state[cmd.op[2]];
+							}
+
+							// modify reg state table
+							reg_state_[cmd.op[0]] = i + 1;
+						}
+						break;
+					case Command::mul:
+					case Command::div:
+						found = false;
+						for (i = 6; i < 9; ++i) {
+							// check rs
+							if (!rs[i].busy) {
+								found = true;
+								break;
+							}
+						}
+						if (found) {
+							// rs available, issue
+							issued = true;
+
+							// modify rs table
+							auto& r = rs_[i];
+							r.busy = true;
+							r.op = (cmd.type == Command::mul) ? 2 : 3;
+							if (reg_state[cmd.op[1]] == 0) {
+								// check if reg available
+								r.vj = reg[cmd.op[1]];
+								r.qj = 0;
+							} else {
+								r.qj = reg_state[cmd.op[1]];
+							}
+							if (reg_state[cmd.op[2]] == 0) {
+								// check if reg available
+								r.vk = reg[cmd.op[2]];
+								r.qk = 0;
+							} else {
+								r.qk = reg_state[cmd.op[2]];
+							}
+
+							// modify reg state table
+							reg_state_[cmd.op[0]] = i + 1;
+						}
+						break;
+					case Command::load:
+						found = false;
+						for (i = 0; i < 3; ++i) {
+							// check LB
+							if (!lb[i].busy) {
+								found = true;
+								break;
+							}
+						}
+						if (found) {
+							// LB available, issue
+							issued = true;
+
+							// modify LB table
+							auto& l = lb_[i];
+							l.busy = true;
+							l.addr = cmd.op[1];
+
+							// modify reg state table
+							reg_state_[cmd.op[0]] = i + 10;
+						}
+						break;
+					case Command::jump:
+						found = false;
+						for (i = 0; i < 6; ++i) {
+							// check rs
+							if (!rs[i].busy) {
+								found = true;
+								break;
+							}
+						}
+						if (found) {
+							// rs available, issue
+							issued = true;
+
+							// store jump info
+							jumping = true;
+							jump_pc = cmd.op[2] + pc;
+							jump_val = cmd.op[0];
+
+							// modify rs table
+							auto& r = rs_[i];
+							r.busy = true;
+							r.op = 4;
+							if (reg_state[cmd.op[1]] == 0) {
+								// check if reg available
+								r.vj = reg[cmd.op[1]];
+								r.qj = 0;
+							} else {
+								r.qj = reg_state[cmd.op[1]];
+							}
+						}
+					}
+					if (issued) {
+						// append cmd
+						if (tail == nullptr) {
+							head = tail = new Inst(pc, i);
+						} else {
+							tail->next = new Inst(pc, i);
+							tail = tail->next;
+						}
+						// record issue cycle
+						auto& rec = records[pc];
+						if (rec.filled == 0) {
+							rec.issue = cycle + 1;
+							rec.filled = 1;
+						}
+
+						// add pc
+						pc += 1;
+					}
+				}
+			}
+			// check if issued commands can be executed
+			p = head;
+			while (p != nullptr) {
+				auto cmd = cmds[p->id];
+				if (p->state == Inst::issued) {
+					auto& r = rs_[p->rs_id];
 					// check Qj, Qk
 					if (cmd.type == Command::load || (r.qj == 0 && r.qk == 0)) {
 						// check FU
@@ -439,8 +482,8 @@ public:
 							}
 							if (found) {
 								// fu available, execute
-								fu_[i].id = p->id;
-								fu_[i].count = 3;
+								fu_[i].id = p->id + 1;
+								fu_[i].count = (cmd.type == Command::jump) ? 1 : 3;
 								p->state = Inst::executing;
 								p->fu_id = i;
 							}
@@ -451,7 +494,7 @@ public:
 							}
 						case Command::mul:
 							found = false;
-							for (i = 4; i < 6; ++i) {
+							for (i = 3; i < 5; ++i) {
 								if (fu[i].count == 0) {
 									found = true;
 									break;
@@ -459,7 +502,7 @@ public:
 							}
 							if (found) {
 								// fu available, execute
-								fu_[i].id = p->id;
+								fu_[i].id = p->id + 1;
 								fu_[i].count = div_count;
 								p->state = Inst::executing;
 								p->fu_id = i;
@@ -467,7 +510,7 @@ public:
 							break;
 						case Command::load:
 							found = false;
-							for (i = 6; i < 8; ++i) {
+							for (i = 5; i < 7; ++i) {
 								if (fu[i].count == 0) {
 									found = true;
 									break;
@@ -475,7 +518,7 @@ public:
 							}
 							if (found) {
 								// fu available, execute
-								fu_[i].id = p->id;
+								fu_[i].id = p->id + 1;
 								fu_[i].count = 3;
 								p->state = Inst::executing;
 								p->fu_id = i;
@@ -483,15 +526,100 @@ public:
 							break;
 						}
 					}
-					break;
-				case Inst::executing:
-					auto f = fu[p->fu_id];
-					if (f.count == 0) {
-						// TODO: 命令执行完成，写回结果、维护数据
-					}
 				}
+				p = p->next;
+			}
+
+			sync();
+			cycle += 1;
+			if (log) {
+				show(lines, cycle);
+			}
+			if (head == nullptr || (head->next == nullptr && head->state == Inst::written)) {
+				break;
 			}
 		}
+	}
+
+	void show(vector<string>& lines, int cycle) {
+		const char* rsm[] = {"", "Busy", "Op", "Vj", "Vk", "Qj", "Qk"};
+		const char* rsn[] = {
+			"", "Ars 1", "Ars 2", "Ars 3", "Ars 4", "Ars 5", "Ars 6", "Mrs 1", "Mrs 2", "Mrs 3", "LB 1", "LB 2", "LB 3"
+		};
+		const char* lbn[] = {"LB 1", "LB 2", "LB 3"};
+		const char* fun[] = {
+			"Add 1   ", "Add 2   ", "Add 3   ", "Mult 1  ", "Mult 2  ", "Load 1  ", "Load 2  "
+		};
+		const char* op[] = {"ADD", "SUB", "MUL", "DIV", "JUMP"};
+		int w = 12;
+		cout << "\n===========================================================\n";
+		cout << "Cycle: " << cycle << endl;
+		cout << "保留站状态：\n";
+		cout.setf(ios::left);
+		cout << hex;
+		for (auto& i : rsm) {
+			cout << setw(w) << i;
+		}
+		cout << endl;
+		for (int i = 0; i < 9; ++i) {
+			cout << setw(w) << rsn[i + 1];
+			if (rs[i].busy) {
+				cout << setw(w) << "Yes";
+				cout << setw(w) << op[rs[i].op];
+				if (rs[i].qj == 0) {
+					cout << "0x" << setw(w - 2) << rs[i].vj;
+				} else {
+					cout << setw(w) << "";
+				}
+				if (rs[i].qk == 0 && rs[i].op != 4) {
+					cout << "0x" << setw(w - 2) << rs[i].vk;
+				} else {
+					cout << setw(w) << "";
+				}
+				cout << setw(w) << rsn[rs[i].qj];
+				cout << setw(w) << rsn[rs[i].qk];
+			} else {
+				cout << setw(w) << "No";
+			}
+			cout << endl;
+		}
+		cout << "\nLoad Buffer 状态：\n";
+		cout << setw(w) << "" << setw(w) << "Busy" << setw(w) << "Address" << endl;
+		for (int i = 0; i < 3; ++i) {
+			cout << setw(w) << lbn[i];
+			if (lb[i].busy) {
+				cout << setw(w) << "Yes" << "0x" << setw(w - 2) << (unsigned int)lb[i].addr << endl;
+			} else {
+				cout << setw(w) << "No" << endl;
+			}
+		}
+		cout << "\n寄存器状态：\n";
+		cout << dec;
+		cout << setw(w) << "R";
+		for (int i = 0; i < 8; ++i) {
+			cout << setw(w) << i;
+		}
+		cout << endl;
+		for (int i = 0; i < 4; ++i) {
+			auto ii = i << 3;
+			cout << setw(w) << ii;
+			for (int j = 0; j < 8; ++j) {
+				cout << setw(w) << rsn[reg_state[ii + j]];
+			}
+			cout << endl;
+		}
+		cout << "\n运算部件状态：\n";
+		w = 30;
+		cout << "        " << setw(w) << "当前执行指令" << "剩余周期数\n";
+		for (int i = 0; i < 7; ++i) {
+			auto& id = fu[i].id;
+			if (id == 0) {
+				cout << fun[i] << endl;
+			} else {
+				cout << fun[i] << setw(w) << lines[fu[i].id - 1] << fu[i].count << endl;
+			}
+		}
+		cout << endl;
 	}
 
 };
@@ -500,7 +628,7 @@ public:
 int main(int argc, const char* argv[]) {
 #if true
 	argc = 3;
-	const char* cmd[] = {"tomasulo.exe", "C:\\Users\\johna\\Data\\0.basic.nel", "C:\\Users\\johna\\Data\\0.basic.log"};
+	const char* cmd[] = {"tomasulo.exe", "C:\\Users\\johna\\Data\\Example.nel", "C:\\Users\\johna\\Data\\0.basic.log"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
