@@ -144,7 +144,7 @@ class Tomasulo {
 		memcpy(rs_, rs, 9 * sizeof(RS));
 		memcpy(lb_, lb, 3 * sizeof(LB));
 		memcpy(fu_, fu, 7 * sizeof(FU));
-		memcpy(reg_state_, reg_state, 32 * sizeof(bool));
+		memcpy(reg_state_, reg_state, 32 * sizeof(int));
 	}
 
 	void sync() {
@@ -280,12 +280,13 @@ public:
 							jumping = false;
 						}
 
-						// release LB & RS
+						// release LB & RS &FU
 						if (cmd.type == Command::load) {
 							lb[p->rs_id].busy = lb_[p->rs_id].busy = false;
 						} else {
 							rs[p->rs_id].busy = rs_[p->rs_id].busy = false;
 						}
+						fu_[p->fu_id].id = 0;
 
 						p->state = Inst::written;
 						auto& rec = records[p->id];
@@ -442,8 +443,7 @@ public:
 						if (tail == nullptr) {
 							head = tail = new Inst(pc, i);
 						} else {
-							tail->next = new Inst(pc, i);
-							tail = tail->next;
+							tail = tail->next = new Inst(pc, i);
 						}
 						// record issue cycle
 						auto& rec = records[pc];
@@ -534,6 +534,7 @@ public:
 				show(lines, cycle);
 			}
 			if (head == nullptr || (head->next == nullptr && head->state == Inst::written)) {
+				//cout << cycle;
 				break;
 			}
 		}
@@ -627,7 +628,7 @@ public:
 int main(int argc, const char* argv[]) {
 	auto t = clock();
 #if false
-	argc = 3;
+	argc = 4;
 	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Gcd.nel", "C:\\Users\\johna\\Data\\0.basic.log", "-q"};
 	argv = cmd;
 #endif
