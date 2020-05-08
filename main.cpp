@@ -96,7 +96,8 @@ struct Record {
 	// record final result
 	int filled; // 0-not filled, 1-filling, 2-filled
 	int issue;
-	int complete;
+	int exec_comp;
+	int write_result;
 };
 
 class Tomasulo {
@@ -291,7 +292,8 @@ public:
 						p->state = Inst::written;
 						auto& rec = records[p->id];
 						if (rec.filled == 1) {
-							rec.complete = cycle;
+							rec.exec_comp = cycle;
+							rec.write_result = cycle + 1;
 							rec.filled = 2;
 						}
 					}
@@ -537,6 +539,7 @@ public:
 				//cout << cycle;
 				break;
 			}
+			//system("pause");
 		}
 		return records;
 	}
@@ -628,8 +631,8 @@ public:
 int main(int argc, const char* argv[]) {
 	auto t = clock();
 #if false
-	argc = 4;
-	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Gcd.nel", "C:\\Users\\johna\\Data\\0.basic.log", "-q"};
+	argc = 3;
+	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Example.nel", "C:\\Users\\johna\\Data\\Example.log"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
@@ -663,10 +666,10 @@ int main(int argc, const char* argv[]) {
 	auto records = tomasulo.run(lines, !quiet);
 	for (int i = 0, j = lines.size(); i < j; ++i) {
 		auto& r = records[i];
-		output << i << " " << r.issue << " " << r.complete << endl;
+		output << r.issue << " " << r.exec_comp << " " << r.write_result << endl;
 	}
 	output.close();
-	cout << "Time: " << clock() - t << endl;
+	cout << "Time: " << clock() - t << "ms" << endl;
 	//system("pause");
 	return 0;
 }
