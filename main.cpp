@@ -547,11 +547,12 @@ public:
 	void show(vector<string>& lines, int cycle) {
 		const char* rsm[] = {"", "Busy", "Op", "Vj", "Vk", "Qj", "Qk"};
 		const char* rsn[] = {
-			"", "Ars 1", "Ars 2", "Ars 3", "Ars 4", "Ars 5", "Ars 6", "Mrs 1", "Mrs 2", "Mrs 3", "LB 1", "LB 2", "LB 3"
+			"", "[Ars 1]", "[Ars 2]", "[Ars 3]", "[Ars 4]", "[Ars 5]", "[Ars 6]", "[Mrs 1]", "[Mrs 2]", "[Mrs 3]",
+			"[LB 1]", "[LB 2]", "[LB 3]"
 		};
-		const char* lbn[] = {"LB 1", "LB 2", "LB 3"};
+		const char* lbn[] = {"[LB 1]", "[LB 2]", "[LB 3]"};
 		const char* fun[] = {
-			"Add 1   ", "Add 2   ", "Add 3   ", "Mult 1  ", "Mult 2  ", "Load 1  ", "Load 2  "
+			"[Add 1]", "[Add 2]", "[Add 3]", "[Mult 1]", "[Mult 2]", "[Load 1]", "[Load 2]"
 		};
 		const char* op[] = {"ADD", "SUB", "MUL", "DIV", "JUMP"};
 		int w = 12;
@@ -600,26 +601,31 @@ public:
 		cout << dec;
 		cout << setw(w) << "R";
 		for (int i = 0; i < 8; ++i) {
-			cout << setw(w) << i;
+			cout << "+" << setw(w - 1) << i;
 		}
 		cout << endl;
 		for (int i = 0; i < 4; ++i) {
 			auto ii = i << 3;
-			cout << setw(w) << ii;
+			cout << "+" << setw(w - 1) << ii;
 			for (int j = 0; j < 8; ++j) {
-				cout << setw(w) << rsn[reg_state[ii + j]];
+				auto ind = ii + j;
+				if (reg_state[ind] == 0) {
+					cout << setw(w) << reg[ind];
+				} else {
+					cout << setw(w) << rsn[reg_state[ind]];
+				}
 			}
 			cout << endl;
 		}
 		cout << "\n运算部件状态：\n";
-		w = 30;
-		cout << "        " << setw(w) << "当前执行指令" << "剩余周期数\n";
+		int w2 = 30;
+		cout << setw(w) << "" << setw(w2) << "当前执行指令" << "剩余周期数\n";
 		for (int i = 0; i < 7; ++i) {
 			auto& id = fu[i].id;
 			if (id == 0) {
-				cout << fun[i] << endl;
+				cout << setw(w) << fun[i] << endl;
 			} else {
-				cout << fun[i] << setw(w) << lines[fu[i].id - 1] << fu[i].count << endl;
+				cout << setw(w) << fun[i] << setw(w2) << lines[fu[i].id - 1] << fu[i].count << endl;
 			}
 		}
 		cout << endl;
