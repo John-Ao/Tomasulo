@@ -308,7 +308,7 @@ public:
 						} else {
 							last_p->next = pn;
 						}
-						delete p;
+						//delete p;
 						p = pn;
 						continue;
 					}
@@ -640,7 +640,6 @@ public:
 		}
 		cout << endl;
 	}
-
 };
 
 
