@@ -122,7 +122,7 @@ class Tomasulo {
 
 	class Inst {
 	public:
-		enum State { issued, executing, written } state;
+		enum State { issued, executing } state;
 
 		int id;
 		int rs_id;
@@ -194,10 +194,9 @@ public:
 		for (int i = 0; i < size; ++i) {
 			cmds[i] = parse_line(lines[i].c_str());
 		}
-		//auto head = new Inst;
-		//head->id = 0;
-		//head->state = Inst::issued;
-		//head->next = nullptr;
+		if (!log) {
+			lines.clear();
+		}
 		Inst *head = nullptr, *tail = nullptr;
 		// 由于不做分支预测，可以不考虑多重jump的情况，用一套变量存jump状态即可
 		bool jumping = false; // 是否正在等待跳转
@@ -207,7 +206,7 @@ public:
 		while (true) {
 			int i;
 			bool found;
-			Inst* p;
+			Inst *p, *last_p;
 
 			copy();
 
@@ -220,9 +219,10 @@ public:
 
 			// execute commands
 			p = head;
+			last_p = nullptr;
 			while (p != nullptr) {
-				auto& cmd = cmds[p->id];
 				if (p->state == Inst::executing) {
+					auto& cmd = cmds[p->id];
 					auto& r = rs[p->rs_id];
 					auto f = fu[p->fu_id];
 					if (f.count == 0) {
@@ -265,6 +265,7 @@ public:
 									rs_[i].qk = 0;
 								}
 							}
+
 							// to reg (there's no WAR)
 							for (i = 0; i < 32; ++i) {
 								if (reg_state[i] == id) {
@@ -289,181 +290,191 @@ public:
 						}
 						fu_[p->fu_id].id = 0;
 
-						p->state = Inst::written;
+						// record cycle
 						auto& rec = records[p->id];
 						if (rec.filled == 1) {
 							rec.exec_comp = cycle;
 							rec.write_result = cycle + 1;
 							rec.filled = 2;
 						}
-					}
-				} else if (p->state == Inst::written) {
-					if (p == head) {
-						head = head->next;
+
+						// remove self
+						if (p == tail) {
+							tail = last_p;
+						}
+						auto pn = p->next;
+						if (p == head) {
+							head = head->next;
+						} else {
+							last_p->next = pn;
+						}
+						delete p;
+						p = pn;
+						continue;
 					}
 				}
+				last_p = p;
 				p = p->next;
 			}
 
 			// fetch cmd
-			if (pc < size) {
+			if (!jumping && pc < size) {
 				auto& cmd = cmds[pc];
 
 				// check if new cmd can be issued
 				bool issued = false;
-				if (!jumping) {
-					switch (cmd.type) {
-					case Command::add:
-					case Command::sub:
-						found = false;
-						for (i = 0; i < 6; ++i) {
-							// check rs
-							if (!rs[i].busy) {
-								found = true;
-								break;
-							}
-						}
-						if (found) {
-							// rs available, issue
-							issued = true;
-
-							// modify rs table
-							auto& r = rs_[i];
-							r.busy = true;
-							r.op = (cmd.type == Command::add) ? 0 : 1;
-							if (reg_state[cmd.op[1]] == 0) {
-								// check if reg available
-								r.vj = reg[cmd.op[1]];
-								r.qj = 0;
-							} else {
-								r.qj = reg_state[cmd.op[1]];
-							}
-							if (reg_state[cmd.op[2]] == 0) {
-								// check if reg available
-								r.vk = reg[cmd.op[2]];
-								r.qk = 0;
-							} else {
-								r.qk = reg_state[cmd.op[2]];
-							}
-
-							// modify reg state table
-							reg_state_[cmd.op[0]] = i + 1;
-						}
-						break;
-					case Command::mul:
-					case Command::div:
-						found = false;
-						for (i = 6; i < 9; ++i) {
-							// check rs
-							if (!rs[i].busy) {
-								found = true;
-								break;
-							}
-						}
-						if (found) {
-							// rs available, issue
-							issued = true;
-
-							// modify rs table
-							auto& r = rs_[i];
-							r.busy = true;
-							r.op = (cmd.type == Command::mul) ? 2 : 3;
-							if (reg_state[cmd.op[1]] == 0) {
-								// check if reg available
-								r.vj = reg[cmd.op[1]];
-								r.qj = 0;
-							} else {
-								r.qj = reg_state[cmd.op[1]];
-							}
-							if (reg_state[cmd.op[2]] == 0) {
-								// check if reg available
-								r.vk = reg[cmd.op[2]];
-								r.qk = 0;
-							} else {
-								r.qk = reg_state[cmd.op[2]];
-							}
-
-							// modify reg state table
-							reg_state_[cmd.op[0]] = i + 1;
-						}
-						break;
-					case Command::load:
-						found = false;
-						for (i = 0; i < 3; ++i) {
-							// check LB
-							if (!lb[i].busy) {
-								found = true;
-								break;
-							}
-						}
-						if (found) {
-							// LB available, issue
-							issued = true;
-
-							// modify LB table
-							auto& l = lb_[i];
-							l.busy = true;
-							l.addr = cmd.op[1];
-
-							// modify reg state table
-							reg_state_[cmd.op[0]] = i + 10;
-						}
-						break;
-					case Command::jump:
-						found = false;
-						for (i = 0; i < 6; ++i) {
-							// check rs
-							if (!rs[i].busy) {
-								found = true;
-								break;
-							}
-						}
-						if (found) {
-							// rs available, issue
-							issued = true;
-
-							// store jump info
-							jumping = true;
-							jump_pc = cmd.op[2] + pc;
-							jump_val = cmd.op[0];
-
-							// modify rs table
-							auto& r = rs_[i];
-							r.busy = true;
-							r.op = 4;
-							if (reg_state[cmd.op[1]] == 0) {
-								// check if reg available
-								r.vj = reg[cmd.op[1]];
-								r.qj = 0;
-							} else {
-								r.qj = reg_state[cmd.op[1]];
-							}
+				switch (cmd.type) {
+				case Command::add:
+				case Command::sub:
+					found = false;
+					for (i = 0; i < 6; ++i) {
+						// check rs
+						if (!rs[i].busy) {
+							found = true;
+							break;
 						}
 					}
-					if (issued) {
-						// append cmd
-						if (tail == nullptr) {
-							head = tail = new Inst(pc, i);
+					if (found) {
+						// rs available, issue
+						issued = true;
+
+						// modify rs table
+						auto& r = rs_[i];
+						r.busy = true;
+						r.op = (cmd.type == Command::add) ? 0 : 1;
+						if (reg_state[cmd.op[1]] == 0) {
+							// check if reg available
+							r.vj = reg[cmd.op[1]];
+							r.qj = 0;
 						} else {
-							tail = tail->next = new Inst(pc, i);
+							r.qj = reg_state[cmd.op[1]];
 						}
-						// record issue cycle
-						auto& rec = records[pc];
-						if (rec.filled == 0) {
-							rec.issue = cycle + 1;
-							rec.filled = 1;
+						if (reg_state[cmd.op[2]] == 0) {
+							// check if reg available
+							r.vk = reg[cmd.op[2]];
+							r.qk = 0;
+						} else {
+							r.qk = reg_state[cmd.op[2]];
 						}
 
-						// add pc
-						pc += 1;
+						// modify reg state table
+						reg_state_[cmd.op[0]] = i + 1;
 					}
+					break;
+				case Command::mul:
+				case Command::div:
+					found = false;
+					for (i = 6; i < 9; ++i) {
+						// check rs
+						if (!rs[i].busy) {
+							found = true;
+							break;
+						}
+					}
+					if (found) {
+						// rs available, issue
+						issued = true;
+
+						// modify rs table
+						auto& r = rs_[i];
+						r.busy = true;
+						r.op = (cmd.type == Command::mul) ? 2 : 3;
+						if (reg_state[cmd.op[1]] == 0) {
+							// check if reg available
+							r.vj = reg[cmd.op[1]];
+							r.qj = 0;
+						} else {
+							r.qj = reg_state[cmd.op[1]];
+						}
+						if (reg_state[cmd.op[2]] == 0) {
+							// check if reg available
+							r.vk = reg[cmd.op[2]];
+							r.qk = 0;
+						} else {
+							r.qk = reg_state[cmd.op[2]];
+						}
+
+						// modify reg state table
+						reg_state_[cmd.op[0]] = i + 1;
+					}
+					break;
+				case Command::load:
+					found = false;
+					for (i = 0; i < 3; ++i) {
+						// check LB
+						if (!lb[i].busy) {
+							found = true;
+							break;
+						}
+					}
+					if (found) {
+						// LB available, issue
+						issued = true;
+
+						// modify LB table
+						auto& l = lb_[i];
+						l.busy = true;
+						l.addr = cmd.op[1];
+
+						// modify reg state table
+						reg_state_[cmd.op[0]] = i + 10;
+					}
+					break;
+				case Command::jump:
+					found = false;
+					for (i = 0; i < 6; ++i) {
+						// check rs
+						if (!rs[i].busy) {
+							found = true;
+							break;
+						}
+					}
+					if (found) {
+						// rs available, issue
+						issued = true;
+
+						// store jump info
+						jumping = true;
+						jump_pc = cmd.op[2] + pc;
+						jump_val = cmd.op[0];
+
+						// modify rs table
+						auto& r = rs_[i];
+						r.busy = true;
+						r.op = 4;
+						if (reg_state[cmd.op[1]] == 0) {
+							// check if reg available
+							r.vj = reg[cmd.op[1]];
+							r.qj = 0;
+						} else {
+							r.qj = reg_state[cmd.op[1]];
+						}
+					}
+				}
+				if (issued) {
+					// append cmd
+					if (tail == nullptr) {
+						head = tail = new Inst(pc, i);
+					} else {
+						tail = tail->next = new Inst(pc, i);
+					}
+
+					// record issue cycle
+					auto& rec = records[pc];
+					if (rec.filled == 0) {
+						rec.issue = cycle + 1;
+						rec.filled = 1;
+					}
+
+					// add pc
+					pc += 1;
 				}
 			}
 			// check if issued commands can be executed
 			p = head;
 			while (p != nullptr) {
-				auto& cmd = cmds[p->id];
 				if (p->state == Inst::issued) {
+					auto& cmd = cmds[p->id];
 					auto& r = rs_[p->rs_id];
 					// check Qj, Qk
 					if (cmd.type == Command::load || (r.qj == 0 && r.qk == 0)) {
@@ -535,8 +546,7 @@ public:
 			if (log) {
 				show(lines, cycle);
 			}
-			if (head == nullptr || (head->next == nullptr && head->state == Inst::written)) {
-				//cout << cycle;
+			if (head == nullptr) {
 				break;
 			}
 			//system("pause");
@@ -669,8 +679,9 @@ int main(int argc, const char* argv[]) {
 	}
 	input.close();
 	Tomasulo tomasulo;
+	int n = lines.size();
 	auto records = tomasulo.run(lines, !quiet);
-	for (int i = 0, j = lines.size(); i < j; ++i) {
+	for (int i = 0; i < n; ++i) {
 		auto& r = records[i];
 		output << r.issue << " " << r.exec_comp << " " << r.write_result << endl;
 	}
