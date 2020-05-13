@@ -133,53 +133,35 @@ class Tomasulo {
 		}
 	};
 
-	RS *rs, *rs_; // 保留站
-	LB *lb, *lb_; // load buffer
-	FU *fu, *fu_; // function unit
+	RS* rs; // 保留站
+	LB* lb; // load buffer
+	FU* fu; // function unit
 	int *reg_state, *reg_state_; // 寄存器状态，0表示就绪
 	int reg[32]; // 寄存器值
 	int pc; // PC
 
 	void copy() {
 		// copy states
-		memcpy(rs_, rs, 9 * sizeof(RS));
-		memcpy(lb_, lb, 3 * sizeof(LB));
-		memcpy(fu_, fu, 7 * sizeof(FU));
 		memcpy(reg_state_, reg_state, 32 * sizeof(int));
 	}
 
 	void sync() {
 		// sync changes
-		void* t = rs;
-		rs = rs_;
-		rs_ = (RS*)t;
-		t = lb;
-		lb = lb_;
-		lb_ = (LB*)t;
-		t = fu;
-		fu = fu_;
-		fu_ = (FU*)t;
-		t = reg_state;
+		auto t = reg_state;
 		reg_state = reg_state_;
-		reg_state_ = (int*)t;
+		reg_state_ = t;
 	}
 
 public:
 	Tomasulo(): pc(0) {
 		rs = new RS[9];
-		rs_ = new RS[9];
 		lb = new LB[3];
-		lb_ = new LB[3];
 		fu = new FU[7];
-		fu_ = new FU[7];
 		reg_state = new int[32];
 		reg_state_ = new int[32];
 		memset(rs, 0, 9 * sizeof(RS));
-		memset(rs_, 0, 9 * sizeof(RS));
 		memset(lb, 0, 3 * sizeof(LB));
-		memset(lb_, 0, 3 * sizeof(LB));
 		memset(fu, 0, 7 * sizeof(FU));
-		memset(fu_, 0, 7 * sizeof(FU));
 		memset(reg_state, 0, 32 * sizeof(int));
 		memset(reg_state_, 0, 32 * sizeof(int));
 		memset(reg, 0, 32 * sizeof(int));
@@ -203,19 +185,12 @@ public:
 		int jump_val; // jump判等值
 		int jump_pc; // jump目标pc
 		int cycle = 0;
+		int i;
+		bool found;
+		Inst *p, *last_p;
 		while (true) {
-			int i;
-			bool found;
-			Inst *p, *last_p;
-
 			copy();
-
-			// for all FU, count--
-			for (i = 0; i < 7; ++i) {
-				if (fu_[i].count > 0) {
-					fu_[i].count -= 1;
-				}
-			}
+			++cycle;
 
 			// execute commands
 			p = head;
@@ -257,12 +232,12 @@ public:
 							// to RS
 							for (i = 0; i < 9; ++i) {
 								if (rs[i].qj == id) {
-									rs_[i].vj = result;
-									rs_[i].qj = 0;
+									rs[i].vj = result;
+									rs[i].qj = 0;
 								}
 								if (rs[i].qk == id) {
-									rs_[i].vk = result;
-									rs_[i].qk = 0;
+									rs[i].vk = result;
+									rs[i].qk = 0;
 								}
 							}
 
@@ -284,17 +259,17 @@ public:
 
 						// release LB & RS &FU
 						if (cmd.type == Command::load) {
-							lb[p->rs_id].busy = lb_[p->rs_id].busy = false;
+							lb[p->rs_id].busy = false;
 						} else {
-							rs[p->rs_id].busy = rs_[p->rs_id].busy = false;
+							rs[p->rs_id].busy = false;
 						}
-						fu_[p->fu_id].id = 0;
+						fu[p->fu_id].id = 0;
 
 						// record cycle
 						auto& rec = records[p->id];
 						if (rec.filled == 1) {
-							rec.exec_comp = cycle;
-							rec.write_result = cycle + 1;
+							rec.exec_comp = cycle - 1;
+							rec.write_result = cycle;
 							rec.filled = 2;
 						}
 
@@ -304,7 +279,7 @@ public:
 						}
 						auto pn = p->next;
 						if (p == head) {
-							head = head->next;
+							head = pn;
 						} else {
 							last_p->next = pn;
 						}
@@ -315,6 +290,11 @@ public:
 				}
 				last_p = p;
 				p = p->next;
+			}
+
+			// for all FU, count--
+			for (i = 0; i < 7; ++i) {
+				--fu[i].count;
 			}
 
 			// fetch cmd
@@ -339,7 +319,7 @@ public:
 						issued = true;
 
 						// modify rs table
-						auto& r = rs_[i];
+						auto& r = rs[i];
 						r.busy = true;
 						r.op = (cmd.type == Command::add) ? 0 : 1;
 						if (reg_state[cmd.op[1]] == 0) {
@@ -376,7 +356,7 @@ public:
 						issued = true;
 
 						// modify rs table
-						auto& r = rs_[i];
+						auto& r = rs[i];
 						r.busy = true;
 						r.op = (cmd.type == Command::mul) ? 2 : 3;
 						if (reg_state[cmd.op[1]] == 0) {
@@ -412,7 +392,7 @@ public:
 						issued = true;
 
 						// modify LB table
-						auto& l = lb_[i];
+						auto& l = lb[i];
 						l.busy = true;
 						l.addr = cmd.op[1];
 
@@ -439,7 +419,7 @@ public:
 						jump_val = cmd.op[0];
 
 						// modify rs table
-						auto& r = rs_[i];
+						auto& r = rs[i];
 						r.busy = true;
 						r.op = 4;
 						if (reg_state[cmd.op[1]] == 0) {
@@ -453,16 +433,17 @@ public:
 				}
 				if (issued) {
 					// append cmd
-					if (tail == nullptr) {
-						head = tail = new Inst(pc, i);
+					auto h = new Inst(pc, i);
+					if (head == nullptr) {
+						head = tail = h;
 					} else {
-						tail = tail->next = new Inst(pc, i);
+						tail = tail->next = h;
 					}
 
 					// record issue cycle
 					auto& rec = records[pc];
 					if (rec.filled == 0) {
-						rec.issue = cycle + 1;
+						rec.issue = cycle;
 						rec.filled = 1;
 					}
 
@@ -475,7 +456,7 @@ public:
 			while (p != nullptr) {
 				if (p->state == Inst::issued) {
 					auto& cmd = cmds[p->id];
-					auto& r = rs_[p->rs_id];
+					auto& r = rs[p->rs_id];
 					// check Qj, Qk
 					if (cmd.type == Command::load || (r.qj == 0 && r.qk == 0)) {
 						// check FU
@@ -486,15 +467,15 @@ public:
 						case Command::jump:
 							found = false;
 							for (i = 0; i < 3; ++i) {
-								if (fu[i].count == 0) {
+								if (fu[i].id == 0) {
 									found = true;
 									break;
 								}
 							}
 							if (found) {
 								// fu available, execute
-								fu_[i].id = p->id + 1;
-								fu_[i].count = (cmd.type == Command::jump) ? 1 : 3;
+								fu[i].id = p->id + 1;
+								fu[i].count = (cmd.type == Command::jump) ? 1 : 3;
 								p->state = Inst::executing;
 								p->fu_id = i;
 							}
@@ -506,15 +487,15 @@ public:
 						case Command::mul:
 							found = false;
 							for (i = 3; i < 5; ++i) {
-								if (fu[i].count == 0) {
+								if (fu[i].id == 0) {
 									found = true;
 									break;
 								}
 							}
 							if (found) {
 								// fu available, execute
-								fu_[i].id = p->id + 1;
-								fu_[i].count = div_count;
+								fu[i].id = p->id + 1;
+								fu[i].count = div_count;
 								p->state = Inst::executing;
 								p->fu_id = i;
 							}
@@ -522,15 +503,15 @@ public:
 						case Command::load:
 							found = false;
 							for (i = 5; i < 7; ++i) {
-								if (fu[i].count == 0) {
+								if (fu[i].id == 0) {
 									found = true;
 									break;
 								}
 							}
 							if (found) {
 								// fu available, execute
-								fu_[i].id = p->id + 1;
-								fu_[i].count = 3;
+								fu[i].id = p->id + 1;
+								fu[i].count = 3;
 								p->state = Inst::executing;
 								p->fu_id = i;
 							}
@@ -542,7 +523,6 @@ public:
 			}
 
 			sync();
-			cycle += 1;
 			if (log) {
 				show(lines, cycle);
 			}
@@ -647,7 +627,7 @@ int main(int argc, const char* argv[]) {
 	auto t = clock();
 #if false
 	argc = 3;
-	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Example.nel", "C:\\Users\\johna\\Data\\Example.log"};
+	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Fabo.nel", "C:\\Users\\johna\\Data\\Example.log"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
