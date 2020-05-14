@@ -649,10 +649,10 @@ public:
 
 
 int main(int argc, const char* argv[]) {
-	auto t = clock();
+	auto t1 = clock();
 #if false
-	argc = 3;
-	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\my.nel", "C:\\Users\\johna\\Data\\Example.log"};
+	argc = 4;
+	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Big_test.nel", "C:\\Users\\johna\\Data\\Example.log"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
@@ -684,13 +684,16 @@ int main(int argc, const char* argv[]) {
 	input.close();
 	Tomasulo tomasulo;
 	int n = lines.size();
+	auto t2 = clock();
 	auto records = tomasulo.run(lines, !quiet);
+	t2 = clock() - t2;
 	for (int i = 0; i < n; ++i) {
 		auto& r = records[i];
-		output << r.issue << " " << r.exec_comp << " " << r.write_result << endl;
+		output << r.issue << ' ' << r.exec_comp << ' ' << r.write_result << '\n';
 	}
 	output.close();
-	cout << "Time: " << clock() - t << "ms" << endl;
+	t1 = clock() - t1;
+	cout << "Total Time: " << t1 << "ms, Simulation Time: " << t2 << "ms\n";
 	//system("pause");
 	return 0;
 }
