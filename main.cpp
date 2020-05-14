@@ -5,7 +5,6 @@
 #include <vector>
 #include <queue>
 #include <ctime>
-#include <algorithm>
 
 using namespace std;
 
@@ -18,7 +17,7 @@ struct Command {
 int parse_hex(const char* str, int len = 20) {
 	int re = 0, i = 0;
 	char s;
-	for (int i = 0; i < len && (s = str[i]) != 0; ++i) {
+	for (; i < len && (s = str[i]) != 0; ++i) {
 		if (s == 'x') {
 			continue;
 		}
@@ -37,7 +36,7 @@ int parse_hex(const char* str, int len = 20) {
 int parse_dec(const char* str, int len = 20) {
 	int re = 0, i = 0;
 	char s;
-	for (int i = 0; i < len && (s = str[i]) != 0; ++i) {
+	for (; i < len && (s = str[i]) != 0; ++i) {
 		re = re * 10 + s - '0';
 	}
 	return re;
@@ -225,7 +224,6 @@ public:
 		Inst *p, *last_p;
 		InstManager IM;
 		queue<Item> fu_q[3];
-		vector<Item> ready[3];
 		while (true) {
 			copy();
 			++cycle;
@@ -504,35 +502,22 @@ public:
 						case Command::add:
 						case Command::sub:
 						case Command::jump:
-							ready[0].emplace_back(p->id + 1, (cmd.type == Command::jump) ? 1 : 3, p);
+							fu_q[0].emplace(p->id + 1, (cmd.type == Command::jump) ? 1 : 3, p);
 							break;
 						case Command::div:
 							if (r.vk == 0) {
 								div_count = 1; // 除以0只要1周期
 							}
 						case Command::mul:
-							ready[1].emplace_back(p->id + 1, div_count, p);
+							fu_q[1].emplace(p->id + 1, div_count, p);
 							break;
 						case Command::load:
-							ready[2].emplace_back(p->id + 1, 3, p);
+							fu_q[2].emplace(p->id + 1, 3, p);
 							break;
 						}
 					}
 				}
 				p = p->next;
-			}
-			for (i = 0; i < 3; ++i) {
-				auto& r = ready[i];
-				auto& f = fu_q[i];
-				if (r.size() > 1) {
-					sort(r.begin(), r.end(), [](const Item& a, const Item& b) {
-						return a.id < b.id;
-					});
-				}
-				for (auto& t : r) {
-					f.push(t);
-				}
-				r.clear();
 			}
 			int lut[] = {0, 0, 0, 1, 1, 2, 2};
 			for (i = 0; i < 7; ++i) {
