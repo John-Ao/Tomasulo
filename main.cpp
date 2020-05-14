@@ -3,7 +3,9 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <queue>
 #include <ctime>
+#include <algorithm>
 
 using namespace std;
 
@@ -122,7 +124,7 @@ class Tomasulo {
 
 	class Inst {
 	public:
-		enum State { issued, executing } state;
+		enum State { issued, ready, executing } state;
 
 		int id;
 		int rs_id;
@@ -130,6 +132,14 @@ class Tomasulo {
 		Inst* next;
 
 		Inst(int id_, int rs_, int fu_ = -1) : state(issued), id(id_), rs_id(rs_), fu_id(fu_), next(nullptr) {
+		}
+	};
+
+	struct Item {
+		int id, count;
+		Inst* p;
+
+		Item(int id_, int count_, Inst* p_): id(id_), count(count_), p(p_) {
 		}
 	};
 
@@ -188,6 +198,8 @@ public:
 		int i;
 		bool found;
 		Inst *p, *last_p;
+		queue<Item> fu_q[3];
+		vector<Item> ready[3];
 		while (true) {
 			copy();
 			++cycle;
@@ -451,7 +463,8 @@ public:
 					pc += 1;
 				}
 			}
-			// check if issued commands can be executed
+
+			// check if issued commands are ready
 			p = head;
 			while (p != nullptr) {
 				if (p->state == Inst::issued) {
@@ -459,67 +472,53 @@ public:
 					auto& r = rs[p->rs_id];
 					// check Qj, Qk
 					if (cmd.type == Command::load || (r.qj == 0 && r.qk == 0)) {
-						// check FU
+						p->state = Inst::ready;
 						auto div_count = 4;
 						switch (cmd.type) {
 						case Command::add:
 						case Command::sub:
 						case Command::jump:
-							found = false;
-							for (i = 0; i < 3; ++i) {
-								if (fu[i].id == 0) {
-									found = true;
-									break;
-								}
-							}
-							if (found) {
-								// fu available, execute
-								fu[i].id = p->id + 1;
-								fu[i].count = (cmd.type == Command::jump) ? 1 : 3;
-								p->state = Inst::executing;
-								p->fu_id = i;
-							}
+							ready[0].emplace_back(p->id + 1, (cmd.type == Command::jump) ? 1 : 3, p);
 							break;
 						case Command::div:
 							if (r.vk == 0) {
 								div_count = 1; // 除以0只要1周期
 							}
 						case Command::mul:
-							found = false;
-							for (i = 3; i < 5; ++i) {
-								if (fu[i].id == 0) {
-									found = true;
-									break;
-								}
-							}
-							if (found) {
-								// fu available, execute
-								fu[i].id = p->id + 1;
-								fu[i].count = div_count;
-								p->state = Inst::executing;
-								p->fu_id = i;
-							}
+							ready[1].emplace_back(p->id + 1, div_count, p);
 							break;
 						case Command::load:
-							found = false;
-							for (i = 5; i < 7; ++i) {
-								if (fu[i].id == 0) {
-									found = true;
-									break;
-								}
-							}
-							if (found) {
-								// fu available, execute
-								fu[i].id = p->id + 1;
-								fu[i].count = 3;
-								p->state = Inst::executing;
-								p->fu_id = i;
-							}
+							ready[2].emplace_back(p->id + 1, 3, p);
 							break;
 						}
 					}
 				}
 				p = p->next;
+			}
+			for (i = 0; i < 3; ++i) {
+				auto& r = ready[i];
+				auto& f = fu_q[i];
+				if (r.size() > 1) {
+					sort(r.begin(), r.end(), [](const Item& a, const Item& b) {
+						return a.id < b.id;
+					});
+				}
+				for (auto& t : r) {
+					f.push(t);
+				}
+				r.clear();
+			}
+			int lut[] = {0, 0, 0, 1, 1, 2, 2};
+			for (i = 0; i < 7; ++i) {
+				auto j = lut[i];
+				if (fu[i].id == 0 && !fu_q[j].empty()) {
+					auto t = fu_q[j].front();
+					fu_q[j].pop();
+					fu[i].id = t.id;
+					fu[i].count = t.count;
+					t.p->state = Inst::executing;
+					t.p->fu_id = i;
+				}
 			}
 
 			sync();
@@ -626,8 +625,8 @@ public:
 int main(int argc, const char* argv[]) {
 	auto t = clock();
 #if false
-	argc = 3;
-	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Fabo.nel", "C:\\Users\\johna\\Data\\Example.log"};
+	argc = 4;
+	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Gcd.nel", "C:\\Users\\johna\\Data\\Example.log"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
