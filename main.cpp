@@ -135,6 +135,31 @@ class Tomasulo {
 		}
 	};
 
+	class InstManager {
+		Inst* rubbish = nullptr;
+	public:
+		Inst* create(int id_, int rs_) {
+			Inst* p;
+			if (rubbish == nullptr) {
+				p = new Inst(id_, rs_);
+			} else {
+				p = rubbish;
+				rubbish = p->next;
+				p->state = Inst::issued;
+				p->id = id_;
+				p->rs_id = rs_;
+				//p->fu_id = -1;
+				p->next = nullptr;
+			}
+			return p;
+		}
+
+		void del(Inst* p) {
+			p->next = rubbish;
+			rubbish = p;
+		}
+	};
+
 	struct Item {
 		int id, count;
 		Inst* p;
@@ -198,6 +223,7 @@ public:
 		int i;
 		bool found;
 		Inst *p, *last_p;
+		InstManager IM;
 		queue<Item> fu_q[3];
 		vector<Item> ready[3];
 		while (true) {
@@ -295,7 +321,7 @@ public:
 						} else {
 							last_p->next = pn;
 						}
-						//delete p;
+						IM.del(p);
 						p = pn;
 						continue;
 					}
@@ -445,7 +471,7 @@ public:
 				}
 				if (issued) {
 					// append cmd
-					auto h = new Inst(pc, i);
+					auto h = IM.create(pc, i);
 					if (head == nullptr) {
 						head = tail = h;
 					} else {
@@ -625,8 +651,8 @@ public:
 int main(int argc, const char* argv[]) {
 	auto t = clock();
 #if false
-	argc = 4;
-	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Gcd.nel", "C:\\Users\\johna\\Data\\Example.log"};
+	argc = 3;
+	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\my.nel", "C:\\Users\\johna\\Data\\Example.log"};
 	argv = cmd;
 #endif
 	if (argc < 3) {
