@@ -7,6 +7,7 @@
 #include <ctime>
 
 using namespace std;
+constexpr float time_unit = 1000.f / CLOCKS_PER_SEC;
 
 struct Command {
 	enum Type { add, sub, mul, div, load, jump } type;
@@ -557,14 +558,14 @@ public:
 		const char* op[] = {"ADD", "SUB", "MUL", "DIV", "JUMP"};
 		int w = 12;
 		cout << "\n===========================================================\n";
-		cout << "Cycle: " << cycle << endl;
-		cout << "±£ÁôÕ¾×´Ì¬£º\n";
+		cout << "Cycle: " << cycle;
+		cout << "\n±£ÁôÕ¾×´Ì¬£º\n";
 		cout.setf(ios::left);
 		cout << hex;
 		for (auto& i : rsm) {
 			cout << setw(w) << i;
 		}
-		cout << endl;
+		cout << '\n';
 		for (int i = 0; i < 9; ++i) {
 			cout << setw(w) << rsn[i + 1];
 			if (rs[i].busy) {
@@ -585,16 +586,16 @@ public:
 			} else {
 				cout << setw(w) << "No";
 			}
-			cout << endl;
+			cout << '\n';
 		}
 		cout << "\nLoad Buffer ×´Ì¬£º\n";
-		cout << setw(w) << "" << setw(w) << "Busy" << setw(w) << "Address" << endl;
+		cout << setw(w) << "" << setw(w) << "Busy" << setw(w) << "Address" << '\n';
 		for (int i = 0; i < 3; ++i) {
 			cout << setw(w) << lbn[i];
 			if (lb[i].busy) {
-				cout << setw(w) << "Yes" << "0x" << setw(w - 2) << (unsigned int)lb[i].addr << endl;
+				cout << setw(w) << "Yes" << "0x" << setw(w - 2) << (unsigned int)lb[i].addr << '\n';
 			} else {
-				cout << setw(w) << "No" << endl;
+				cout << setw(w) << "No" << '\n';
 			}
 		}
 		cout << "\n¼Ä´æÆ÷×´Ì¬£º\n";
@@ -603,7 +604,7 @@ public:
 		for (int i = 0; i < 8; ++i) {
 			cout << "+" << setw(w - 1) << i;
 		}
-		cout << endl;
+		cout << '\n';
 		for (int i = 0; i < 4; ++i) {
 			auto ii = i << 3;
 			cout << "+" << setw(w - 1) << ii;
@@ -615,7 +616,7 @@ public:
 					cout << setw(w) << rsn[reg_state[ind]];
 				}
 			}
-			cout << endl;
+			cout << '\n';
 		}
 		cout << "\nÔËËã²¿¼þ×´Ì¬£º\n";
 		int w2 = 30;
@@ -623,18 +624,19 @@ public:
 		for (int i = 0; i < 7; ++i) {
 			auto& id = fu[i].id;
 			if (id == 0) {
-				cout << setw(w) << fun[i] << endl;
+				cout << setw(w) << fun[i] << '\n';
 			} else {
-				cout << setw(w) << fun[i] << setw(w2) << lines[fu[i].id - 1] << fu[i].count << endl;
+				cout << setw(w) << fun[i] << setw(w2) << lines[fu[i].id - 1] << fu[i].count << '\n';
 			}
 		}
-		cout << endl;
+		cout << '\n';
 	}
 };
 
 
 int main(int argc, const char* argv[]) {
 	auto t1 = clock();
+	ios_base::sync_with_stdio(false);
 #if false
 	argc = 4;
 	const char* cmd[] = {"", "C:\\Users\\johna\\Data\\Big_test.nel", "C:\\Users\\johna\\Data\\Example.log"};
@@ -678,7 +680,7 @@ int main(int argc, const char* argv[]) {
 	}
 	output.close();
 	t1 = clock() - t1;
-	cout << "Total Time: " << t1 << "ms, Simulation Time: " << t2 << "ms\n";
+	cout << "Total Time: " << t1 * time_unit << "ms, Simulation Time: " << t2 * time_unit << "ms\n";
 	//system("pause");
 	return 0;
 }
